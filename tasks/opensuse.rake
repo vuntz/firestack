@@ -1,0 +1,483 @@
+namespace :opensuse do
+
+    #generic package builder to build RPMs for all Openstack projects
+    task :build_packages do
+
+        project=ENV['PROJECT_NAME']
+        raise "Please specify a PROJECT_NAME." if project.nil?
+
+        obs_username = ENV['OBS_USERNAME']
+        raise "Please specify a OBS_USERNAME." if obs_username.nil?
+        obs_password = ENV['OBS_PASSWORD']
+        raise "Please specify a OBS_PASSWORD." if obs_password.nil?
+
+        obs_package = ENV['OBS_PACKAGE']
+        raise "Please specify a OBS_PACKAGE." if obs_package.nil?
+
+        obs_apiurl = ENV.fetch("OBS_APIURL", "https://api.opensuse.org")
+        obs_project = ENV.fetch("OBS_PROJECT", "Cloud:OpenStack:Master")
+        obs_target = ENV.fetch("OBS_TARGET", "openSUSE_12.2")
+
+        git_master=ENV['GIT_MASTER']
+        raise "Please specify a GIT_MASTER." if git_master.nil?
+
+        #branch that will be merged if 'MERGE_MASTER' is specified
+        merge_master_branch = ENV.fetch("GIT_MERGE_MASTER_BRANCH", "master")
+
+        merge_master = ENV.fetch("MERGE_MASTER", "")
+        git_revision = ENV.fetch("REVISION", "")
+        src_url = ENV["SOURCE_URL"]
+        src_branch = ENV.fetch("SOURCE_BRANCH", "master")
+        build_docs = ENV.fetch("BUILD_DOCS", "")
+        raise "Please specify a SOURCE_URL." if src_url.nil?
+        server_name=ENV['SERVER_NAME']
+        server_name = "localhost" if server_name.nil?
+        cacheurl=ENV["CACHEURL"]
+
+        puts "Building #{project} packages using: #{obs_apiurl}/source/#{obs_project}/#{obs_package} #{src_url}:#{src_branch}"
+
+        remote_exec %{
+ssh #{server_name} bash <<-"EOF_SERVER_NAME"
+#{BASH_COMMON}
+
+BUILD_LOG=$(mktemp)
+SRC_DIR="#{project}_source"
+OSC_CACHE_DIR=/root/.osc_repo_cache
+
+test -e openstack-#{project} && rm -rf openstack-#{project}
+test -e $SRC_DIR && rm -rf $SRC_DIR
+
+function install_package {
+    local PKGS=${*:?"Please specify a PKGS."}
+    rpm -q ${PKGS} &> /dev/null || zypper -q --non-interactive install ${PKGS}
+}
+
+function osc_clone_with_retry {
+    local APIURL=${1:?"Please specify a APIURL."}
+    local PRJ=${2:?"Please specify a PRJ."}
+    local PKG=${3:?"Please specify a PKG."}
+    local DIR=${4:?"Please specify a DIR."}
+    local URLSHA=$(echo \"$APIURL\" | sha1sum | cut -f 1 -d ' ')
+    local APIURL_CACHE_DIR="${OSC_CACHE_DIR}/${URLSHA}"
+    local PKG_CACHE_DIR="${APIURL_CACHE_DIR}/${PRJ}/${PKG}"
+    [ -d "$APIURL_CACHE_DIR" ] || mkdir -p "$APIURL_CACHE_DIR"
+    if [ -d "$PKG_CACHE_DIR" ]; then
+        echo "Using osc cache..."
+        pushd "$PKG_CACHE_DIR" > /dev/null
+        osc update &> /dev/null
+        popd > /dev/null
+        cp -a "$PKG_CACHE_DIR" "$DIR"
+    else
+        local COUNT=1
+        local ECHO_URL="$APIURL/source/$PRJ/$PKG"
+        echo "Checking out from: $ECHO_URL"
+        pushd "$APIURL_CACHE_DIR" > /dev/null
+        until osc checkout "$PRJ" "$PKG"; do
+            [ "$COUNT" -eq "4" ] && fail "Failed to checkout: $ECHO_URL"
+            sleep $(( $COUNT * 5 ))
+            COUNT=$(( $COUNT + 1 ))
+        done
+        popd > /dev/null
+        cp -a "$PKG_CACHE_DIR" "$DIR"
+    fi
+}
+
+
+### Create tarball from git
+
+install_package git-core
+install_package python-distribute
+
+# if no .gitconfig exists create one (we may need it when merging below)
+if [ ! -f ~/.gitconfig ]; then
+cat > ~/.gitconfig <<-EOF_GIT_CONFIG_CAT
+[user]
+        name = OpenStack
+        email = devnull@openstack.org
+EOF_GIT_CONFIG_CAT
+fi
+
+git_clone_with_retry "#{git_master}" "$SRC_DIR"
+cd "$SRC_DIR"
+git fetch "#{src_url}" "#{src_branch}" || fail "Failed to git fetch branch #{src_branch}."
+git checkout -q FETCH_HEAD || fail "Failed to git checkout FETCH_HEAD."
+GIT_REVISION=#{git_revision}
+if [ -n "$GIT_REVISION" ]; then
+	git checkout $GIT_REVISION || \
+		fail "Failed to checkout revision $GIT_REVISION."
+else
+	GIT_REVISION=$(git rev-parse --short HEAD)
+	[ -z "$GIT_REVISION" ] && \
+		fail "Failed to obtain #{project} revision from git."
+fi
+GIT_COMMITS_PROJECT="$(git log --pretty=format:'' | wc -l)"
+
+echo "#{project.upcase}_REVISION=$GIT_REVISION"
+
+if [ -n "#{merge_master}" ]; then
+	git merge #{merge_master_branch} || fail "Failed to merge #{merge_master_branch}."
+fi
+
+PROJECT_NAME="#{project}"
+
+SKIP_GENERATE_AUTHORS=1 SKIP_WRITE_GIT_CHANGELOG=1 python setup.py sdist &> $BUILD_LOG || { echo "Failed to run sdist."; cat $BUILD_LOG; exit 1; }
+
+# determine version from tarball name
+VERSION=$(ls dist/* | sed -e "s|.*$PROJECT_NAME-\\(.*\\)\\.tar.gz|\\1|")
+echo "Tarball version: $VERSION"
+
+
+### Prepare packaging bits
+
+install_package osc
+
+# overwrite ~/.oscrc to have the correct apiurl/username/password
+cat > ~/.oscrc <<-EOF_OSCRC_CAT
+[general]
+apiurl = #{obs_apiurl}
+[#{obs_apiurl}]
+user = #{obs_username}
+pass = #{obs_password}
+trusted_prj = openSUSE:Factory openSUSE:12.2
+EOF_OSCRC_CAT
+
+cd
+osc_clone_with_retry "#{obs_apiurl}" "#{obs_project}" "#{obs_package}" "openstack-#{project}" || { echo "Unable to checkout #{obs_project}/#{obs_package}"; exit 1; }
+cd openstack-#{project}
+SPEC_FILE_NAME="#{obs_package}.spec"
+RPM_BASE_NAME=${SPEC_FILE_NAME:0:-5}
+OSC_REVISION_INSTALLER="$(osc log | head -n 2 | tail -n 1 | cut -d ' ' -f 1)"
+
+PACKAGE_REVISION="${GIT_COMMITS_PROJECT}.${GIT_REVISION:0:7}_${OSC_REVISION_INSTALLER:0:7}"
+sed -i.bk -e "s/Release:.*/Release: 0.$PACKAGE_REVISION/g" "$SPEC_FILE_NAME"
+
+cp ~/$SRC_DIR/dist/*.tar.gz .
+SOURCE=$(ls ~/$SRC_DIR/dist/*.tar.gz | xargs basename)
+sed -i.bk -e "s/Source0\\?:.*/Source0: ${SOURCE}/g" "$SPEC_FILE_NAME"
+
+[ -z "#{build_docs}" ] && sed -i -e 's/%global with_doc .*/%global with_doc 0/g' "$SPEC_FILE_NAME"
+
+# custom version
+sed -i.bk "$SPEC_FILE_NAME" -e "s/^Version:.*/Version: $VERSION/g"
+sed -i.bk "$SPEC_FILE_NAME" -e "s/^%define majorversion .*/%define majorversion $VERSION/g"
+
+# Rip out patches
+sed -i.bk "$SPEC_FILE_NAME" -e 's|^%patch.*||g'
+
+# build rpm's
+export OSC_BUILD_ROOT="/var/tmp/build-root-#{obs_target}"
+osc build "$SPEC_FILE_NAME" "#{obs_target}" &> $BUILD_LOG || { echo "Failed to build #{project} packages."; cat $BUILD_LOG; exit 1; }
+mkdir -p ~/rpms
+find "${OSC_BUILD_ROOT}/home/abuild/rpmbuild/"{RPMS,SRPMS} -name "*rpm" -exec cp {} ~/rpms \\;
+
+if ls ~/rpms/${RPM_BASE_NAME}*.noarch.rpm &> /dev/null; then
+  rm $BUILD_LOG
+  exit 0
+else
+  echo "Failed to build RPM: $RPM_BASE_NAME"
+  cat $BUILD_LOG
+  rm $BUILD_LOG
+  exit 1
+fi
+EOF_SERVER_NAME
+RETVAL=$?
+exit $RETVAL
+        } do |ok, out|
+            puts out
+            fail "Failed to build packages for #{project}!" unless ok
+        end
+
+    end
+
+    # uploader to rpm cache
+    #TODO
+    task :fill_cache do
+
+        cacheurl=ENV["CACHEURL"]
+        raise "Please specify a CACHEURL" if cacheurl.nil?
+        server_name=ENV['SERVER_NAME']
+        server_name = "localhost" if server_name.nil?
+
+        remote_exec %{
+ssh #{server_name} bash <<-"EOF_SERVER_NAME"
+#{BASH_COMMON}
+ls -d *_source || { echo "No RPMS to upload"; exit 0; }
+
+for SRCDIR in $(ls -d *_source) ; do
+    PROJECT=$(echo $SRCDIR | cut -d _ -f 1)
+    echo Checking $PROJECT
+
+    cd ~/$SRCDIR
+    SRCUUID=$(git log -n 1 --pretty=format:%H)
+    # If we're not at the head of master then we wont be caching
+    [ $SRCUUID != $(cat .git/refs/heads/master) ] && continue
+
+    cd ~/openstack-$PROJECT
+    PKGUUID=$(git log -n 1 --pretty=format:%H)
+    # If we're not at the head of master then we wont be caching
+    [ $PKGUUID != $(cat .git/refs/heads/master) ] && continue
+
+    URL=#{cacheurl}/rpmcache/$PKGUUID/$SRCUUID
+    echo Cache : $PKGUUID $SRCUUID
+
+    FILESWEHAVE=$(curl $URL 2> /dev/null)
+    for file in $(find . -name "*rpm") ; do
+        if [[ ! "$FILESWEHAVE" == *$(echo $file | sed -e 's/.*\\///g')* ]] ; then
+            echo POSTING $file to $PKGUUID $SRCUUID
+            curl -X POST $URL -Ffile=@$file 2> /dev/null || { echo ERROR POSTING FILE ; exit 1 ; }
+        fi
+    done
+done
+EOF_SERVER_NAME
+        } do |ok, out|
+            fail "Cache of packages failed!" unless ok
+        end
+    end
+
+    desc "Create a local RPM repo using built packages."
+    #TODO
+    task :create_rpm_repo do
+
+        server_name=ENV['SERVER_NAME']
+        server_name = "localhost" if server_name.nil?
+
+        puts "Creating RPM repo on #{server_name}..."
+        remote_exec %{
+ssh #{server_name} bash <<-"EOF_SERVER_NAME"
+#{BASH_COMMON}
+yum -q -y install httpd
+
+mkdir -p /var/www/html/repos/
+rm -rf /var/www/html/repos/*
+find ~/rpms -name "*rpm" -exec cp {} /var/www/html/repos/ \\;
+
+createrepo /var/www/html/repos
+if [ -f /etc/init.d/httpd ]; then
+  /etc/init.d/httpd restart
+else
+  systemctl restart httpd.service
+fi
+
+EOF_SERVER_NAME
+        } do |ok, out|
+            fail "Failed to create RPM repo!" unless ok
+        end
+
+        sg=ServerGroup.get()
+        puts "Creating yum repo config files..."
+        results = remote_multi_exec sg.server_names, %{
+echo -e "[openstack]\\nname=OpenStack RPM repo\\nbaseurl=http://#{server_name}/repos\\nenabled=1\\ngpgcheck=0\\npriority=1" > /etc/yum.repos.d/openstack.repo
+        }
+
+        err_msg = ""
+        results.each_pair do |hostname, data|
+            ok = data[0]
+            out = data[1]
+            err_msg += "Errors creating Yum conf on #{hostname}. \n #{out}\n" unless ok
+        end
+        fail err_msg unless err_msg == ""
+
+    end
+
+    desc "Configure instances to use a remote RPM repo."
+    #TODO
+    task :configure_rpm_repo do
+
+        # Default to using the upstream packages built by SmokeStack:
+        #  http://repos.fedorapeople.org/repos/openstack/openstack-trunk/README
+        repo_file_url=ENV['REPO_FILE_URL'] || "http://repos.fedorapeople.org/repos/openstack/openstack-trunk/fedora-openstack-trunk.repo"
+
+        sg=ServerGroup.get()
+        puts "Creating yum repo config files..."
+        results = remote_multi_exec sg.server_names, %{
+rpm -q yum-priorities &> /dev/null || yum -y -q install yum-priorities
+cd /etc/yum.repos.d
+wget #{repo_file_url}
+        }
+
+        err_msg = ""
+        results.each_pair do |hostname, data|
+            ok = data[0]
+            out = data[1]
+            err_msg += "Errors creating Yum conf on #{hostname}. \n #{out}\n" unless ok
+        end
+        fail err_msg unless err_msg == ""
+
+    end
+
+    task :build_nova do
+        ENV["OBS_PACKAGE"] = "openstack-nova" if ENV["OBS_PACKAGE"].nil?
+        if ENV["GIT_MASTER"].nil?
+            ENV["GIT_MASTER"] = "git://github.com/openstack/nova.git"
+        end
+        ENV["PROJECT_NAME"] = "nova"
+        Rake::Task["opensuse:build_packages"].execute
+    end
+
+    task :build_python_novaclient do
+        ENV["OBS_PACKAGE"] = "python-novaclient" if ENV["OBS_PACKAGE"].nil?
+        if ENV["GIT_MASTER"].nil?
+            ENV["GIT_MASTER"] = "git://github.com/openstack/python-novaclient.git"
+        end
+        ENV["PROJECT_NAME"] = "python-novaclient"
+        Rake::Task["opensuse:build_packages"].execute
+    end
+
+    task :build_glance do
+        ENV["OBS_PACKAGE"] = "openstack-glance" if ENV["OBS_PACKAGE"].nil?
+        if ENV["GIT_MASTER"].nil?
+            ENV["GIT_MASTER"] = "git://github.com/openstack/glance.git"
+        end
+        ENV["PROJECT_NAME"] = "glance"
+        Rake::Task["opensuse:build_packages"].execute
+    end
+
+    task :build_python_glanceclient do
+        ENV["OBS_PACKAGE"] = "python-glanceclient" if ENV["OBS_PACKAGE"].nil?
+        if ENV["GIT_MASTER"].nil?
+            ENV["GIT_MASTER"] = "git://github.com/openstack/python-glanceclient.git"
+        end
+        ENV["PROJECT_NAME"] = "python-glanceclient"
+        Rake::Task["opensuse:build_packages"].execute
+
+    end
+
+    task :build_keystone do
+        ENV["OBS_PACKAGE"] = "openstack-keystone" if ENV["OBS_PACKAGE"].nil?
+        if ENV["GIT_MASTER"].nil?
+            ENV["GIT_MASTER"] = "git://github.com/openstack/keystone.git"
+        end
+        ENV["PROJECT_NAME"] = "keystone"
+        Rake::Task["opensuse:build_packages"].execute
+    end
+
+    task :build_python_keystoneclient do
+        ENV["OBS_PACKAGE"] = "python-keystoneclient" if ENV["OBS_PACKAGE"].nil?
+        if ENV["GIT_MASTER"].nil?
+            ENV["GIT_MASTER"] = "git://github.com/openstack/python-keystoneclient.git"
+        end
+        ENV["PROJECT_NAME"] = "python-keystoneclient"
+        Rake::Task["opensuse:build_packages"].execute
+    end
+
+    task :build_swift do
+        ENV["OBS_PACKAGE"] = "openstack-swift" if ENV["OBS_PACKAGE"].nil?
+        if ENV["GIT_MASTER"].nil?
+            ENV["GIT_MASTER"] = "git://github.com/openstack/swift.git"
+        end
+        ENV["PROJECT_NAME"] = "swift"
+        Rake::Task["opensuse:build_packages"].execute
+    end
+
+    task :build_python_swiftclient do
+        ENV["OBS_PACKAGE"] = "python-swiftclient" if ENV["OBS_PACKAGE"].nil?
+        if ENV["GIT_MASTER"].nil?
+            ENV["GIT_MASTER"] = "git://github.com/openstack/python-swiftclient.git"
+        end
+        ENV["PROJECT_NAME"] = "python-swiftclient"
+        Rake::Task["opensuse:build_packages"].execute
+
+    end
+
+    task :build_cinder do
+        ENV["OBS_PACKAGE"] = "openstack-cinder" if ENV["OBS_PACKAGE"].nil?
+        if ENV["GIT_MASTER"].nil?
+            ENV["GIT_MASTER"] = "git://github.com/openstack/cinder.git"
+        end
+        ENV["PROJECT_NAME"] = "cinder"
+        Rake::Task["opensuse:build_packages"].execute
+
+    end
+
+    task :build_python_cinderclient do
+        ENV["OBS_PACKAGE"] = "python-cinderclient" if ENV["OBS_PACKAGE"].nil?
+        if ENV["GIT_MASTER"].nil?
+            ENV["GIT_MASTER"] = "git://github.com/openstack/python-cinderclient.git"
+        end
+        ENV["PROJECT_NAME"] = "python-cinderclient"
+        Rake::Task["opensuse:build_packages"].execute
+
+    end
+
+    task :build_quantum do
+        ENV["OBS_PACKAGE"] = "openstack-quantum" if ENV["OBS_PACKAGE"].nil?
+        if ENV["GIT_MASTER"].nil?
+            ENV["GIT_MASTER"] = "git://github.com/openstack/quantum.git"
+        end
+        ENV["PROJECT_NAME"] = "quantum"
+        Rake::Task["opensuse:build_packages"].execute
+    end
+
+    task :build_python_quantumclient do
+        ENV["OBS_PACKAGE"] = "python-quantumclient" if ENV["OBS_PACKAGE"].nil?
+        if ENV["GIT_MASTER"].nil?
+            ENV["GIT_MASTER"] = "git://github.com/openstack/python-quantumclient.git"
+        end
+        ENV["PROJECT_NAME"] = "python-quantumclient"
+        Rake::Task["opensuse:build_packages"].execute
+    end
+
+    # Warlock is a fairly new Glance requirement so we provide a builder
+    # in FireStack for now until stable releases of distros pick it up
+    #TODO
+    task :build_python_warlock do
+
+        packager_url= ENV.fetch("RPM_PACKAGER_URL", "git://github.com/fedora-openstack/python-warlock.git")
+        ENV["RPM_PACKAGER_URL"] = packager_url if ENV["RPM_PACKAGER_URL"].nil?
+        if ENV["GIT_MASTER"].nil?
+            ENV["GIT_MASTER"] = "git://github.com/bcwaldon/warlock.git"
+        end
+        ENV["PROJECT_NAME"] = "warlock"
+        ENV["SOURCE_URL"] = "git://github.com/bcwaldon/warlock.git"
+        Rake::Task["opensuse:build_packages"].execute
+
+    end
+
+    # Fedora 17 includes python-prettytable 0.5
+    # Most openstack projects require > 0.6 so we build our own here.
+    #TODO
+    task :build_python_prettytable do
+
+        packager_url= ENV.fetch("RPM_PACKAGER_URL", "git://github.com/dprince/fedora-python-prettytable.git")
+        ENV["RPM_PACKAGER_URL"] = packager_url if ENV["RPM_PACKAGER_URL"].nil?
+        if ENV["GIT_MASTER"].nil?
+            ENV["GIT_MASTER"] = "git://github.com/dprince/python-prettytable.git"
+        end
+        ENV["PROJECT_NAME"] = "prettytable"
+        ENV["SOURCE_BRANCH"] = "0.6"
+        ENV["SOURCE_URL"] = "git://github.com/dprince/python-prettytable.git"
+        Rake::Task["opensuse:build_packages"].execute
+
+    end
+
+    # Warlock is a fairly new Nova requirement so we provide a builder
+    # in FireStack for now until stable releases of distros pick it up
+    #TODO
+    task :build_python_stevedore do
+
+        packager_url= ENV.fetch("RPM_PACKAGER_URL", "git://github.com/fedora-openstack/python-stevedore.git")
+        ENV["RPM_PACKAGER_URL"] = packager_url if ENV["RPM_PACKAGER_URL"].nil?
+        if ENV["GIT_MASTER"].nil?
+            ENV["GIT_MASTER"] = "git://github.com/dreamhost/stevedore.git"
+        end
+        ENV["PROJECT_NAME"] = "stevedore"
+        ENV["SOURCE_URL"] = "git://github.com/dreamhost/stevedore.git"
+        Rake::Task["opensuse:build_packages"].execute
+
+    end
+
+    #TODO
+    task :build_misc do
+
+        Rake::Task["opensuse:build_python_stevedore"].execute
+
+        ENV["PROJECT_NAME"] = "prettytable"
+        ENV["SOURCE_BRANCH"] = "0.6"
+        ENV["SOURCE_URL"] = "git://github.com/dprince/python-prettytable.git"
+        ENV["RPM_PACKAGER_URL"] = "git://github.com/dprince/fedora-python-prettytable.git"
+        ENV["GIT_MASTER"] = "git://github.com/dprince/python-prettytable.git"
+        Rake::Task["opensuse:build_python_prettytable"].execute
+
+    end
+
+end

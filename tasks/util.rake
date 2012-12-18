@@ -6,6 +6,8 @@ task :distro_name do
 # try to install lsb-release if not present (preinstall would be best)
 if [ -f /etc/fedora-release ]; then
   rpm -q redhat-lsb-core &> /dev/null || yum -y -q install redhat-lsb-core
+elif [ -f /etc/SuSE-release ]; then
+  rpm -q lsb-release &> /dev/null || zypper -q --non-interactive install lsb-release
 elif [ -f /usr/bin/dpkg ]; then
   dpkg -l lsb-release &> /dev/null || apt-get -y -q install lsb-release &> /dev/null
 fi
@@ -13,6 +15,9 @@ lsb_release -is
     } do |ok, out|
             if ok then
                 ENV['DISTRO_NAME'] = out.chomp.downcase
+                if ENV['DISTRO_NAME'] == 'suse linux'
+                    ENV['DISTRO_NAME'] = 'opensuse'
+                end
             else
                 puts ok
                 fail "Unable to set distro name with 'lsb_release'!"

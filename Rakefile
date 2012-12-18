@@ -125,15 +125,25 @@ function fail {
     exit 1
 }
 
+function install_git {
+    if [ -f /etc/fedora-release ]; then
+        rpm -q git &> /dev/null || yum -y -q install git
+    elif [ -f /etc/SuSE-release ]; then
+        rpm -q git-core &> /dev/null || zypper -q --non-interactive install git-core
+    elif [ -f /usr/bin/dpkg ]; then
+        dpkg -l git-core &> /dev/null || apt-get -y -q install git-core &> /dev/null
+    fi
+}
+
 GIT_CACHE_DIR=/root/.git_repo_cache
 
 function git_clone_with_retry {
-    rpm -q git &> /dev/null || yum install -q -y git
     local URL=${1:?"Please specify a URL."}
     local DIR=${2:?"Please specify a DIR."}
     local URLSHA=$(echo \"$URL\" | sha1sum | cut -f 1 -d ' ')
     local SHORT_REPO_NAME=${URL/#*\\//}
     local CACHE_DIR="${GIT_CACHE_DIR}/${SHORT_REPO_NAME}-${URLSHA}"
+    install_git
     [ -d "$GIT_CACHE_DIR" ] || mkdir -p "$GIT_CACHE_DIR"
     if [ -d "$CACHE_DIR" ]; then
         echo "Using git repository cache..."
