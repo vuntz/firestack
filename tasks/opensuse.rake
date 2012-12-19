@@ -171,7 +171,6 @@ else
 	[ -z "$GIT_REVISION" ] && \
 		fail "Failed to obtain #{project} revision from git."
 fi
-GIT_COMMITS_PROJECT="$(git log --pretty=format:'' | wc -l)"
 
 echo "#{project.upcase}_REVISION=$GIT_REVISION"
 
@@ -191,38 +190,28 @@ echo "Tarball version: $VERSION"
 ### Prepare packaging bits
 
 cd
+
+# FIXME: Temporary until obs-service-git_tarballs package is available on all supported distros
+git_clone_with_retry "https://github.com/openSUSE/obs-service-git_tarballs.git" "obs-service-git_tarballs"
+
 osc_clone_with_retry "#{obs_apiurl}" "#{obs_project}" "#{obs_package}" "openstack-#{project}" || { echo "Unable to checkout #{obs_project}/#{obs_package}"; exit 1; }
 cd openstack-#{project}
+
+~/obs-service-git_tarballs/git_tarballs --url "~/$SRC_DIR/dist/*.tar.gz" --email devnull@openstack.org
+
+OSC_REVISION=$(head -n 1 .osc/_files | sed 's/.*srcmd5="//g;s/".*//g')
+OSC_MTIME=$(grep 'mtime="' .osc/_files | sed 's/.*mtime="//g;s/".*//g' | sort | tail -n 1)
 SPEC_FILE_NAME="#{obs_package}.spec"
-CHANGES_FILE_NAME="#{obs_package}.changes"
 RPM_BASE_NAME=${SPEC_FILE_NAME:0:-5}
-OSC_REVISION_INSTALLER=$(head -n 1 .osc/_files | sed 's/.*srcmd5="//g;s/".*//g')
 
-PACKAGE_REVISION="${GIT_COMMITS_PROJECT}.${GIT_REVISION:0:7}_${OSC_REVISION_INSTALLER:0:7}"
-sed -i.bk -e "s/Release:.*/Release: 0.$PACKAGE_REVISION/g" "$SPEC_FILE_NAME"
+PACKAGE_REVISION="${OSC_MTIME}.${OSC_REVISION:0:7}"
+sed -i -e "s/Release:.*/Release: 0.$PACKAGE_REVISION/g" "$SPEC_FILE_NAME"
 
-cp ~/$SRC_DIR/dist/*.tar.gz .
-SOURCE=$(ls ~/$SRC_DIR/dist/*.tar.gz | xargs basename)
-sed -i.bk -e "s/Source0\\?:.*/Source0: ${SOURCE}/g" "$SPEC_FILE_NAME"
-
+# TODO-vuntz: this is not how we build docs on openSUSE
 [ -z "#{build_docs}" ] && sed -i -e 's/%global with_doc .*/%global with_doc 0/g' "$SPEC_FILE_NAME"
 
-# custom version
-sed -i.bk "$SPEC_FILE_NAME" -e "s/^Version:.*/Version: $VERSION/g"
-sed -i.bk "$SPEC_FILE_NAME" -e "s/^%define majorversion .*/%define majorversion $VERSION/g"
-
 # Rip out patches
-sed -i.bk "$SPEC_FILE_NAME" -e 's|^%patch.*||g'
-
-cat > "$CHANGES_FILE_NAME".tmp <<-EOF_CHANGES_CAT
---------------------------------------------------------------------
-`TZ=UTC LC_ALL=C date` - devnull@openstack.org
-
-- Firestack automatic packaging of $VERSION (${GIT_REVISION:0:7}).
-
-EOF_CHANGES_CAT
-cat "$CHANGES_FILE_NAME" >> "$CHANGES_FILE_NAME".tmp
-mv "$CHANGES_FILE_NAME".tmp "$CHANGES_FILE_NAME"
+sed -i "$SPEC_FILE_NAME" -e 's|^%patch.*||g'
 
 # build rpm's
 export OSC_BUILD_ROOT="/var/tmp/build-root-#{obs_target}"
