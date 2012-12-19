@@ -41,7 +41,10 @@ ssh #{server_name} bash <<-"EOF_SERVER_NAME"
 #{BASH_COMMON}
 
 BUILD_LOG=$(mktemp)
-SRC_DIR="#{project}_source"
+mkdir -p sources
+mkdir -p sources-rpms
+SRC_DIR="sources/#{project}"
+PKG_DIR="sources-rpms/#{project}"
 OSC_CACHE_DIR=/root/.osc_repo_cache
 
 function osc_clone_with_retry {
@@ -141,8 +144,8 @@ if [ -n "$CACHEURL" ] ; then
     test $? -eq 0 && { echo "Retrieved rpms from cache" ; exit 0 ; }
 fi
 
-test -e openstack-#{project} && rm -rf openstack-#{project}
 test -e $SRC_DIR && rm -rf $SRC_DIR
+test -e $PKG_DIR && rm -rf $PKG_DIR
 
 
 ### Create tarball from git
@@ -195,8 +198,8 @@ cd
 # FIXME: Temporary until obs-service-git_tarballs package is available on all supported distros
 git_clone_with_retry "https://github.com/openSUSE/obs-service-git_tarballs.git" "obs-service-git_tarballs"
 
-osc_clone_with_retry "#{obs_apiurl}" "#{obs_project}" "#{obs_package}" "openstack-#{project}" || { echo "Unable to checkout #{obs_project}/#{obs_package}"; exit 1; }
-cd openstack-#{project}
+osc_clone_with_retry "#{obs_apiurl}" "#{obs_project}" "#{obs_package}" "${PKG_DIR}" || { echo "Unable to checkout #{obs_project}/#{obs_package}"; exit 1; }
+cd "${PKG_DIR}"
 
 ~/obs-service-git_tarballs/git_tarballs --url "$TARBALL" --package "#{obs_package}" --email devnull@openstack.org
 
@@ -261,10 +264,10 @@ exit $RETVAL
         remote_exec %{
 ssh #{server_name} bash <<-"EOF_SERVER_NAME"
 #{BASH_COMMON}
-ls -d *_source || { echo "No RPMS to upload"; exit 0; }
+ls -d sources/* || { echo "No RPMS to upload"; exit 0; }
 
-for SRCDIR in $(ls -d *_source) ; do
-    PROJECT=$(echo $SRCDIR | cut -d _ -f 1)
+for SRCDIR in $(ls -d sources/*) ; do
+    PROJECT=$(basename $SRCDIR)
     echo Checking $PROJECT
 
     cd ~/$SRCDIR
@@ -272,7 +275,7 @@ for SRCDIR in $(ls -d *_source) ; do
     # If we're not at the head of master then we wont be caching
     [ $SRCUUID != $(cat .git/refs/heads/master) ] && continue
 
-    cd ~/openstack-$PROJECT
+    cd ~/sources-rpms/$PROJECT
     PKGUUID=$(head -n 1 .osc/_files | sed 's/.*srcmd5="//g;s/".*//g')
 
     URL=#{cacheurl}/rpmcache/$PKGUUID/$SRCUUID
