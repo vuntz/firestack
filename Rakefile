@@ -118,21 +118,31 @@ if File.exist?(File.join(KYTOON_PROJECT, 'tasks')) then
 end
 
 #git clone w/ retry
-BASH_COMMON=%{
-function fail {
-    local MSG=$1
-    echo "FAILURE_MSG=$MSG"
-    exit 1
+BASH_COMMON_PKG=%{
+function is_package_installed {
+    local PKG=$1
+    if [ -f /etc/fedora-release -o /etc/SuSE-release ]; then
+        rpm -q ${PKG} &> /dev/null
+        return $?
+    elif [ -f /usr/bin/dpkg ]; then
+        dpkg -l ${PKG} &> /dev/null
+        return $?
+    else
+        return 1
+    fi
 }
 
 function install_package {
-    local PKGS=${*:?"Please specify a PKGS."}
+    local PKGS=
+    for PKG in $*; do
+        is_package_installed "${PKG}" || PKGS="${PKGS} ${PKG}"
+    done
     if [ -f /etc/fedora-release ]; then
-        rpm -q ${PKGS} &> /dev/null || yum -y -q install ${PKGS}
+        yum -y -q install ${PKGS}
     elif [ -f /etc/SuSE-release ]; then
-        rpm -q ${PKGS} &> /dev/null || zypper -q --non-interactive install ${PKGS}
+        zypper -q --non-interactive install ${PKGS}
     elif [ -f /usr/bin/dpkg ]; then
-        dpkg -l ${PKGS} &> /dev/null || apt-get -y -q install ${PKGS} &> /dev/null
+        apt-get -y -q install ${PKGS} &> /dev/null
     fi
 }
 
@@ -142,6 +152,16 @@ function install_git {
     else
         install_package git-core
     fi
+}
+}
+
+BASH_COMMON=%{
+#{BASH_COMMON_PKG}
+
+function fail {
+    local MSG=$1
+    echo "FAILURE_MSG=$MSG"
+    exit 1
 }
 
 GIT_CACHE_DIR=/root/.git_repo_cache
