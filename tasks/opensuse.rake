@@ -196,6 +196,7 @@ echo "Tarball version: $VERSION"
 cd
 
 # FIXME: Temporary until obs-service-git_tarballs package is available on all supported distros
+rm -rf obs-service-git_tarballs
 git_clone_with_retry "https://github.com/openSUSE/obs-service-git_tarballs.git" "obs-service-git_tarballs"
 
 osc_clone_with_retry "#{obs_apiurl}" "#{obs_project}" "#{obs_package}" "${PKG_DIR}" || { echo "Unable to checkout #{obs_project}/#{obs_package}"; exit 1; }
