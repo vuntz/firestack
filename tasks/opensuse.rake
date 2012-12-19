@@ -180,10 +180,11 @@ fi
 
 PROJECT_NAME="#{project}"
 
-SKIP_GENERATE_AUTHORS=1 SKIP_WRITE_GIT_CHANGELOG=1 python setup.py sdist &> $BUILD_LOG || { echo "Failed to run sdist."; cat $BUILD_LOG; exit 1; }
+SKIP_GENERATE_AUTHORS=1 python setup.py sdist &> $BUILD_LOG || { echo "Failed to run sdist."; cat $BUILD_LOG; exit 1; }
 
 # determine version from tarball name
 VERSION=$(ls dist/* | sed -e "s|.*$PROJECT_NAME-\\(.*\\)\\.tar.gz|\\1|")
+TARBALL="$HOME/$SRC_DIR/$(ls dist/*.tar.gz)"
 echo "Tarball version: $VERSION"
 
 
@@ -197,11 +198,12 @@ git_clone_with_retry "https://github.com/openSUSE/obs-service-git_tarballs.git" 
 osc_clone_with_retry "#{obs_apiurl}" "#{obs_project}" "#{obs_package}" "openstack-#{project}" || { echo "Unable to checkout #{obs_project}/#{obs_package}"; exit 1; }
 cd openstack-#{project}
 
-~/obs-service-git_tarballs/git_tarballs --url "~/$SRC_DIR/dist/*.tar.gz" --email devnull@openstack.org
+~/obs-service-git_tarballs/git_tarballs --url "$TARBALL" --package "#{obs_package}" --email devnull@openstack.org
 
 OSC_REVISION=$(head -n 1 .osc/_files | sed 's/.*srcmd5="//g;s/".*//g')
 OSC_MTIME=$(grep 'mtime="' .osc/_files | sed 's/.*mtime="//g;s/".*//g' | sort | tail -n 1)
 SPEC_FILE_NAME="#{obs_package}.spec"
+CHANGES_FILE_NAME="#{obs_package}.changes"
 RPM_BASE_NAME=${SPEC_FILE_NAME:0:-5}
 
 PACKAGE_REVISION="${OSC_MTIME}.${OSC_REVISION:0:7}"
@@ -212,6 +214,16 @@ sed -i -e "s/Release:.*/Release: 0.$PACKAGE_REVISION/g" "$SPEC_FILE_NAME"
 
 # Rip out patches
 sed -i "$SPEC_FILE_NAME" -e 's|^%patch.*||g'
+
+cat > "$CHANGES_FILE_NAME".tmp <<-EOF_CHANGES_CAT
+--------------------------------------------------------------------
+`TZ=UTC LC_ALL=C date` - devnull@openstack.org
+
+- Firestack automatic packaging of $VERSION (${GIT_REVISION:0:7}).
+
+EOF_CHANGES_CAT
+cat "$CHANGES_FILE_NAME" >> "$CHANGES_FILE_NAME".tmp
+mv "$CHANGES_FILE_NAME".tmp "$CHANGES_FILE_NAME"
 
 # build rpm's
 export OSC_BUILD_ROOT="/var/tmp/build-root-#{obs_target}"
