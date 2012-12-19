@@ -44,14 +44,6 @@ BUILD_LOG=$(mktemp)
 SRC_DIR="#{project}_source"
 OSC_CACHE_DIR=/root/.osc_repo_cache
 
-test -e openstack-#{project} && rm -rf openstack-#{project}
-test -e $SRC_DIR && rm -rf $SRC_DIR
-
-function install_package {
-    local PKGS=${*:?"Please specify a PKGS."}
-    rpm -q ${PKGS} &> /dev/null || zypper -q --non-interactive install ${PKGS}
-}
-
 function osc_clone_with_retry {
     local APIURL=${1:?"Please specify a APIURL."}
     local PRJ=${2:?"Please specify a PRJ."}
@@ -82,10 +74,79 @@ function osc_clone_with_retry {
     fi
 }
 
+# Test if the rpms we require are in the cache already
+# If present this function downloads them to ~/rpms
+function download_cached_rpm {
+    local PROJECT="$1"
+    local SRC_URL="$2"
+    local SRC_BRANCH="$3"
+    local SRC_REVISION="$4"
+    local OBS_PROJECT="$5"
+    local OBS_PACKAGE="$6"
+
+    SRCUUID=$SRC_REVISION
+    if [ -z $SRCUUID ] ; then
+        SRCUUID=$(git ls-remote "$SRC_URL" "$SRC_BRANCH" | cut -f 1)
+        if [ -z $SRCUUID ] ; then
+            echo "Invalid source URL:BRANCH $SRC_URL:$SRC_BRANCH"
+            return 1
+        fi
+    fi
+    PKGUUID=$(osc api "/source/$OBS_PROJECT/$OBS_PACKAGE" | head -n 1 .osc/_files | sed 's/.*srcmd5="//g;s/".*//g')
+    if [ -z $PKGUUID ] ; then
+        echo "Invalid package $OBS_PROJECT/$OBS_PACKAGE"
+        return 1
+    fi
+
+    echo "Checking cache For $PKGUUID $SRCUUID"
+    FILESFROMCACHE=$(curl $CACHEURL/rpmcache/$PKGUUID/$SRCUUID 2> /dev/null) \
+      || { echo "No files in RPM cache."; return 1; }
+
+    mkdir -p "${PROJECT}_cached_rpms"
+    for file in $FILESFROMCACHE ; do
+        HADFILE=1
+        filename="${PROJECT}_cached_rpms/$(echo $file | sed -e 's/.*\\///g')"
+        echo Downloading $file -\\> $filename
+        curl $CACHEURL/$file 2> /dev/null > "$filename" || HADERROR=1
+    done
+
+    if [ -z "$HADERROR" -a -n "$HADFILE" ] ; then
+        mkdir -p rpms
+        cp "${PROJECT}_cached_rpms"/* rpms
+        echo "$(echo $PROJECT | tr [:lower:] [:upper:])_REVISION=${SRCUUID:0:7}"
+        return 0
+    fi
+    return 1
+}
+
+
+### Get rpm from cache if we already have it
+
+install_package git-core
+install_package osc
+
+# overwrite ~/.oscrc to have the correct apiurl/username/password
+cat > ~/.oscrc <<-EOF_OSCRC_CAT
+[general]
+apiurl = #{obs_apiurl}
+[#{obs_apiurl}]
+user = #{obs_username}
+pass = #{obs_password}
+trusted_prj = openSUSE:Factory openSUSE:12.2
+EOF_OSCRC_CAT
+
+CACHEURL="#{cacheurl}"
+if [ -n "$CACHEURL" ] ; then
+    download_cached_rpm #{project} "#{src_url}" "#{src_branch}" "#{git_revision}" "#{obs_project}" "#{obs_package}"
+    test $? -eq 0 && { echo "Retrieved rpms from cache" ; exit 0 ; }
+fi
+
+test -e openstack-#{project} && rm -rf openstack-#{project}
+test -e $SRC_DIR && rm -rf $SRC_DIR
+
 
 ### Create tarball from git
 
-install_package git-core
 install_package python-distribute
 
 # if no .gitconfig exists create one (we may need it when merging below)
@@ -129,24 +190,12 @@ echo "Tarball version: $VERSION"
 
 ### Prepare packaging bits
 
-install_package osc
-
-# overwrite ~/.oscrc to have the correct apiurl/username/password
-cat > ~/.oscrc <<-EOF_OSCRC_CAT
-[general]
-apiurl = #{obs_apiurl}
-[#{obs_apiurl}]
-user = #{obs_username}
-pass = #{obs_password}
-trusted_prj = openSUSE:Factory openSUSE:12.2
-EOF_OSCRC_CAT
-
 cd
 osc_clone_with_retry "#{obs_apiurl}" "#{obs_project}" "#{obs_package}" "openstack-#{project}" || { echo "Unable to checkout #{obs_project}/#{obs_package}"; exit 1; }
 cd openstack-#{project}
 SPEC_FILE_NAME="#{obs_package}.spec"
 RPM_BASE_NAME=${SPEC_FILE_NAME:0:-5}
-OSC_REVISION_INSTALLER="$(osc log | head -n 2 | tail -n 1 | cut -d ' ' -f 1)"
+OSC_REVISION_INSTALLER=$(head -n 1 .osc/_files | sed 's/.*srcmd5="//g;s/".*//g')
 
 PACKAGE_REVISION="${GIT_COMMITS_PROJECT}.${GIT_REVISION:0:7}_${OSC_REVISION_INSTALLER:0:7}"
 sed -i.bk -e "s/Release:.*/Release: 0.$PACKAGE_REVISION/g" "$SPEC_FILE_NAME"
@@ -190,7 +239,6 @@ exit $RETVAL
     end
 
     # uploader to rpm cache
-    #TODO
     task :fill_cache do
 
         cacheurl=ENV["CACHEURL"]
@@ -213,9 +261,7 @@ for SRCDIR in $(ls -d *_source) ; do
     [ $SRCUUID != $(cat .git/refs/heads/master) ] && continue
 
     cd ~/openstack-$PROJECT
-    PKGUUID=$(git log -n 1 --pretty=format:%H)
-    # If we're not at the head of master then we wont be caching
-    [ $PKGUUID != $(cat .git/refs/heads/master) ] && continue
+    PKGUUID=$(head -n 1 .osc/_files | sed 's/.*srcmd5="//g;s/".*//g')
 
     URL=#{cacheurl}/rpmcache/$PKGUUID/$SRCUUID
     echo Cache : $PKGUUID $SRCUUID
@@ -235,7 +281,6 @@ EOF_SERVER_NAME
     end
 
     desc "Create a local RPM repo using built packages."
-    #TODO
     task :create_rpm_repo do
 
         server_name=ENV['SERVER_NAME']
@@ -245,18 +290,17 @@ EOF_SERVER_NAME
         remote_exec %{
 ssh #{server_name} bash <<-"EOF_SERVER_NAME"
 #{BASH_COMMON}
-yum -q -y install httpd
+
+install_package apache2
+install_package createrepo
 
 mkdir -p /var/www/html/repos/
 rm -rf /var/www/html/repos/*
 find ~/rpms -name "*rpm" -exec cp {} /var/www/html/repos/ \\;
 
 createrepo /var/www/html/repos
-if [ -f /etc/init.d/httpd ]; then
-  /etc/init.d/httpd restart
-else
-  systemctl restart httpd.service
-fi
+
+/sbin/service apache2 restart
 
 EOF_SERVER_NAME
         } do |ok, out|
@@ -264,16 +308,16 @@ EOF_SERVER_NAME
         end
 
         sg=ServerGroup.get()
-        puts "Creating yum repo config files..."
+        puts "Creating RPM repo config files..."
         results = remote_multi_exec sg.server_names, %{
-echo -e "[openstack]\\nname=OpenStack RPM repo\\nbaseurl=http://#{server_name}/repos\\nenabled=1\\ngpgcheck=0\\npriority=1" > /etc/yum.repos.d/openstack.repo
+echo -e "[openstack]\\nname=OpenStack RPM repo\\nbaseurl=http://#{server_name}/repos\\nenabled=1\\nautorefresh=1\\ngpgcheck=0\\npriority=1" > /etc/zypp/repos.d/openstack.repo
         }
 
         err_msg = ""
         results.each_pair do |hostname, data|
             ok = data[0]
             out = data[1]
-            err_msg += "Errors creating Yum conf on #{hostname}. \n #{out}\n" unless ok
+            err_msg += "Errors creating RPM repo config file on #{hostname}. \n #{out}\n" unless ok
         end
         fail err_msg unless err_msg == ""
 
@@ -288,10 +332,9 @@ echo -e "[openstack]\\nname=OpenStack RPM repo\\nbaseurl=http://#{server_name}/r
         repo_file_url=ENV['REPO_FILE_URL'] || "http://repos.fedorapeople.org/repos/openstack/openstack-trunk/fedora-openstack-trunk.repo"
 
         sg=ServerGroup.get()
-        puts "Creating yum repo config files..."
+        puts "Creating RPM repo config files..."
         results = remote_multi_exec sg.server_names, %{
-rpm -q yum-priorities &> /dev/null || yum -y -q install yum-priorities
-cd /etc/yum.repos.d
+cd /etc/zypp/repos.d
 wget #{repo_file_url}
         }
 
@@ -299,7 +342,7 @@ wget #{repo_file_url}
         results.each_pair do |hostname, data|
             ok = data[0]
             out = data[1]
-            err_msg += "Errors creating Yum conf on #{hostname}. \n #{out}\n" unless ok
+            err_msg += "Errors creating RPM repo config file on #{hostname}. \n #{out}\n" unless ok
         end
         fail err_msg unless err_msg == ""
 

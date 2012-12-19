@@ -125,13 +125,22 @@ function fail {
     exit 1
 }
 
+function install_package {
+    local PKGS=${*:?"Please specify a PKGS."}
+    if [ -f /etc/fedora-release ]; then
+        rpm -q ${PKGS} &> /dev/null || yum -y -q install ${PKGS}
+    elif [ -f /etc/SuSE-release ]; then
+        rpm -q ${PKGS} &> /dev/null || zypper -q --non-interactive install ${PKGS}
+    elif [ -f /usr/bin/dpkg ]; then
+        dpkg -l ${PKGS} &> /dev/null || apt-get -y -q install ${PKGS} &> /dev/null
+    fi
+}
+
 function install_git {
     if [ -f /etc/fedora-release ]; then
-        rpm -q git &> /dev/null || yum -y -q install git
-    elif [ -f /etc/SuSE-release ]; then
-        rpm -q git-core &> /dev/null || zypper -q --non-interactive install git-core
-    elif [ -f /usr/bin/dpkg ]; then
-        dpkg -l git-core &> /dev/null || apt-get -y -q install git-core &> /dev/null
+        install_package git
+    else
+        install_package git-core
     fi
 }
 
