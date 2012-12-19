@@ -35,11 +35,12 @@ test_smoke=ENV['TEMPEST_SMOKE'] || 'false'
 remote_exec %{
 ssh #{server_name} bash <<-"EOF_SERVER_NAME"
 
-#TODO-vuntz
 for PKG in git python-unittest2 python-paramiko euca2ools python-nose; do
-if [ -e /bin/rpm ]; then
+if [ -f /etc/fedora-release ]; then
   rpm -qi $PKG &> /dev/null || yum -y -q install $PKG &> /dev/null
-else
+elif [ -f /etc/SuSE-release ]; then
+  rpm -q $PKG &> /dev/null || zypper -q --non-interactive install $PKG
+elif [ -f /usr/bin/dpkg ]; then
   dpkg -l $PKG &> /dev/null || apt-get install -q -y $PKG &> /dev/null
 fi
 done
