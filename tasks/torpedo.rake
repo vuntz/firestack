@@ -25,6 +25,7 @@ task :torpedo do
 	remote_exec %{
 ssh #{server_name} bash <<-"EOF_SERVER_NAME"
 
+#TODO-vuntz
 if [ -f /bin/rpm ]; then
 	rpm -q rubygems &> /dev/null || yum install -y rubygems &> /dev/null
 	rpm -q rubygem-json &> /dev/null || yum install -y rubygem-json &> /dev/null

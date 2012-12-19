@@ -328,7 +328,7 @@ echo -e "[openstack]\\nname=OpenStack RPM repo\\nbaseurl=http://#{server_name}/r
 
         # Default to using the upstream packages built by SmokeStack:
         #  http://repos.fedorapeople.org/repos/openstack/openstack-trunk/README
-        #TODO
+        #TODO-vuntz
         repo_file_url=ENV['REPO_FILE_URL'] || "http://repos.fedorapeople.org/repos/openstack/openstack-trunk/fedora-openstack-trunk.repo"
 
         sg=ServerGroup.get()

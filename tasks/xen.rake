@@ -144,7 +144,7 @@ EOF_BASH
 
 # SSH PUBLIC KEY CONFIG
 ssh #{SSH_OPTS} root@#{xenserver_ip} bash <<-"EOF_BASH"
-
+#TODO-vuntz
 # EPEL
 cat > /etc/pki/rpm-gpg/RPM-GPG-KEY-EPEL <<-"EOF_RPM_GPG_KEY"
 #{IO.read(File.join(File.dirname(__FILE__), "RPM-GPG-KEY-EPEL"))}

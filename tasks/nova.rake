@@ -35,6 +35,7 @@ exit $RETVAL
         Rake::Task["nova:smoke_tests_#{ENV['DISTRO_NAME']}"].invoke
     end
 
+    #TODO-vuntz
     task :smoke_tests_fedora do
         server_name=ENV['SERVER_NAME']
         # default to nova1 if SERVER_NAME is unset
