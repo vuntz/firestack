@@ -194,6 +194,7 @@ cd
 osc_clone_with_retry "#{obs_apiurl}" "#{obs_project}" "#{obs_package}" "openstack-#{project}" || { echo "Unable to checkout #{obs_project}/#{obs_package}"; exit 1; }
 cd openstack-#{project}
 SPEC_FILE_NAME="#{obs_package}.spec"
+CHANGES_FILE_NAME="#{obs_package}.changes"
 RPM_BASE_NAME=${SPEC_FILE_NAME:0:-5}
 OSC_REVISION_INSTALLER=$(head -n 1 .osc/_files | sed 's/.*srcmd5="//g;s/".*//g')
 
@@ -212,6 +213,16 @@ sed -i.bk "$SPEC_FILE_NAME" -e "s/^%define majorversion .*/%define majorversion 
 
 # Rip out patches
 sed -i.bk "$SPEC_FILE_NAME" -e 's|^%patch.*||g'
+
+cat > "$CHANGES_FILE_NAME".tmp <<-EOF_CHANGES_CAT
+--------------------------------------------------------------------
+`TZ=UTC LC_ALL=C date` - devnull@openstack.org
+
+- Firestack automatic packaging of $VERSION (${GIT_REVISION:0:7}).
+
+EOF_CHANGES_CAT
+cat "$CHANGES_FILE_NAME" >> "$CHANGES_FILE_NAME".tmp
+mv "$CHANGES_FILE_NAME".tmp "$CHANGES_FILE_NAME"
 
 # build rpm's
 export OSC_BUILD_ROOT="/var/tmp/build-root-#{obs_target}"
