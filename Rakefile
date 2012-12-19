@@ -137,12 +137,14 @@ function install_package {
     for PKG in $*; do
         is_package_installed "${PKG}" || PKGS="${PKGS} ${PKG}"
     done
-    if [ -f /etc/fedora-release ]; then
-        yum -y -q install ${PKGS}
-    elif [ -f /etc/SuSE-release ]; then
-        zypper -q --non-interactive install ${PKGS}
-    elif [ -f /usr/bin/dpkg ]; then
-        apt-get -y -q install ${PKGS} &> /dev/null
+    if [ -n "${PKGS}" ]; then
+        if [ -f /etc/fedora-release ]; then
+            yum -y -q install ${PKGS}
+        elif [ -f /etc/SuSE-release ]; then
+            zypper -q --non-interactive install ${PKGS}
+        elif [ -f /usr/bin/dpkg ]; then
+            apt-get -y -q install ${PKGS} &> /dev/null
+        fi
     fi
 }
 
