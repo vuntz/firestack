@@ -324,11 +324,11 @@ echo -e "[openstack]\\nname=OpenStack RPM repo\\nbaseurl=http://#{server_name}/r
     end
 
     desc "Configure instances to use a remote RPM repo."
-    #TODO
     task :configure_rpm_repo do
 
         # Default to using the upstream packages built by SmokeStack:
         #  http://repos.fedorapeople.org/repos/openstack/openstack-trunk/README
+        #TODO
         repo_file_url=ENV['REPO_FILE_URL'] || "http://repos.fedorapeople.org/repos/openstack/openstack-trunk/fedora-openstack-trunk.repo"
 
         sg=ServerGroup.get()
@@ -462,11 +462,9 @@ wget #{repo_file_url}
 
     # Warlock is a fairly new Glance requirement so we provide a builder
     # in FireStack for now until stable releases of distros pick it up
-    #TODO
     task :build_python_warlock do
-
-        packager_url= ENV.fetch("RPM_PACKAGER_URL", "git://github.com/fedora-openstack/python-warlock.git")
-        ENV["RPM_PACKAGER_URL"] = packager_url if ENV["RPM_PACKAGER_URL"].nil?
+        ENV["OBS_PROJECT"] = "devel:languages:python" if ENV["OBS_PROJECT"].nil?
+        ENV["OBS_PACKAGE"] = "python-warlock" if ENV["OBS_PACKAGE"].nil?
         if ENV["GIT_MASTER"].nil?
             ENV["GIT_MASTER"] = "git://github.com/bcwaldon/warlock.git"
         end
@@ -476,13 +474,11 @@ wget #{repo_file_url}
 
     end
 
-    # Fedora 17 includes python-prettytable 0.5
+    # openSUSE 12.2 includes python-prettytable 0.5
     # Most openstack projects require > 0.6 so we build our own here.
-    #TODO
     task :build_python_prettytable do
-
-        packager_url= ENV.fetch("RPM_PACKAGER_URL", "git://github.com/dprince/fedora-python-prettytable.git")
-        ENV["RPM_PACKAGER_URL"] = packager_url if ENV["RPM_PACKAGER_URL"].nil?
+        ENV["OBS_PROJECT"] = "devel:languages:python" if ENV["OBS_PROJECT"].nil?
+        ENV["OBS_PACKAGE"] = "python-prettytable" if ENV["OBS_PACKAGE"].nil?
         if ENV["GIT_MASTER"].nil?
             ENV["GIT_MASTER"] = "git://github.com/dprince/python-prettytable.git"
         end
@@ -493,13 +489,11 @@ wget #{repo_file_url}
 
     end
 
-    # Warlock is a fairly new Nova requirement so we provide a builder
+    # Stevedore is a fairly new Nova requirement so we provide a builder
     # in FireStack for now until stable releases of distros pick it up
-    #TODO
     task :build_python_stevedore do
-
-        packager_url= ENV.fetch("RPM_PACKAGER_URL", "git://github.com/fedora-openstack/python-stevedore.git")
-        ENV["RPM_PACKAGER_URL"] = packager_url if ENV["RPM_PACKAGER_URL"].nil?
+        ENV["OBS_PROJECT"] = "devel:languages:python" if ENV["OBS_PROJECT"].nil?
+        ENV["OBS_PACKAGE"] = "python-stevedore" if ENV["OBS_PACKAGE"].nil?
         if ENV["GIT_MASTER"].nil?
             ENV["GIT_MASTER"] = "git://github.com/dreamhost/stevedore.git"
         end
@@ -509,18 +503,16 @@ wget #{repo_file_url}
 
     end
 
-    #TODO
     task :build_misc do
+
+        saved_env = ENV.to_hash
 
         Rake::Task["opensuse:build_python_stevedore"].execute
 
-        ENV["PROJECT_NAME"] = "prettytable"
-        ENV["SOURCE_BRANCH"] = "0.6"
-        ENV["SOURCE_URL"] = "git://github.com/dprince/python-prettytable.git"
-        ENV["RPM_PACKAGER_URL"] = "git://github.com/dprince/fedora-python-prettytable.git"
-        ENV["GIT_MASTER"] = "git://github.com/dprince/python-prettytable.git"
-        Rake::Task["opensuse:build_python_prettytable"].execute
+        ENV.clear
+        ENV.update(saved_env)
 
+        Rake::Task["opensuse:build_python_prettytable"].execute
     end
 
 end
