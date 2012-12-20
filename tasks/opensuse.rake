@@ -17,6 +17,7 @@ namespace :opensuse do
         obs_apiurl = ENV.fetch("OBS_APIURL", "https://api.opensuse.org")
         obs_project = ENV.fetch("OBS_PROJECT", "Cloud:OpenStack:Master")
         obs_target = ENV.fetch("OBS_TARGET", "openSUSE_12.2")
+        obs_use_git_tarballs = ENV.fetch("OBS_USE_GIT_TARBALLS", "")
 
         git_master=ENV['GIT_MASTER']
         raise "Please specify a GIT_MASTER." if git_master.nil?
@@ -197,14 +198,8 @@ echo "Tarball version: $VERSION"
 
 cd
 
-# FIXME: Temporary until obs-service-git_tarballs package is available on all supported distros
-rm -rf obs-service-git_tarballs
-git_clone_with_retry "https://github.com/openSUSE/obs-service-git_tarballs.git" "obs-service-git_tarballs"
-
 osc_clone_with_retry "#{obs_apiurl}" "#{obs_project}" "#{obs_package}" "${PKG_DIR}" || { echo "Unable to checkout #{obs_project}/#{obs_package}"; exit 1; }
 cd "${PKG_DIR}"
-
-~/obs-service-git_tarballs/git_tarballs --url "$TARBALL" --package "#{obs_package}" --email ${FIRESTACK_EMAIL}
 
 OSC_REVISION=$(head -n 1 .osc/_files | sed 's/.*srcmd5="//g;s/".*//g')
 OSC_MTIME=$(grep 'mtime="' .osc/_files | sed 's/.*mtime="//g;s/".*//g' | sort | tail -n 1)
@@ -212,11 +207,25 @@ SPEC_FILE_NAME="#{obs_package}.spec"
 CHANGES_FILE_NAME="#{obs_package}.changes"
 RPM_BASE_NAME=${SPEC_FILE_NAME:0:-5}
 
-# git_tarballs uses now() as timestamp in version, let's use the last git commit date
-sed -i -e "s/^\\(Version:.*\\+git\\.\\)[0-9]*\\(\\..*\\)$/\\1${GIT_DATE}\\2/g" "$SPEC_FILE_NAME"
+if [ "x#{obs_use_git_tarballs}" == "x1" ]; then
+    # FIXME: Temporary until obs-service-git_tarballs package is available on all supported distros
+    rm -rf obs-service-git_tarballs
+    git_clone_with_retry "https://github.com/openSUSE/obs-service-git_tarballs.git" "obs-service-git_tarballs"
+
+    ~/obs-service-git_tarballs/git_tarballs --url "$TARBALL" --package "#{obs_package}" --email ${FIRESTACK_EMAIL}
+
+    # git_tarballs uses now() as timestamp in version, let's use the last git commit date
+    sed -i -e "s/^\\(Version:.*\\+git\\.\\)[0-9]*\\(\\..*\\)$/\\1${GIT_DATE}\\2/g" "$SPEC_FILE_NAME"
+else
+    cp "$TARBALL" .
+    SOURCE=$(basename "$TARBALL")
+    sed -i -e "s/Source0\\?:.*/Source0:        ${SOURCE}/g" "$SPEC_FILE_NAME"
+    sed -i -e "s/^Version:.*/Version:        ${VERSION}+git.${GIT_DATE}.${GIT_REVISION:0:7}/g" "$SPEC_FILE_NAME"
+    sed -i -e "s/^\\(%setup.*\\)%{version}\\(.*\\)$/\\1${VERSION}\\2/g" "$SPEC_FILE_NAME"
+fi
 
 PACKAGE_REVISION="${OSC_MTIME}.${OSC_REVISION:0:7}"
-sed -i -e "s/^Release:.*/Release: 0.$PACKAGE_REVISION/g" "$SPEC_FILE_NAME"
+sed -i -e "s/^Release:.*/Release:        0.$PACKAGE_REVISION/g" "$SPEC_FILE_NAME"
 
 # TODO-vuntz: this is not how we build docs on openSUSE
 [ -z "#{build_docs}" ] && sed -i -e 's/%global with_doc .*/%global with_doc 0/g' "$SPEC_FILE_NAME"
@@ -371,6 +380,7 @@ wget #{repo_file_url}
 
     task :build_nova do
         ENV["OBS_PACKAGE"] = "openstack-nova" if ENV["OBS_PACKAGE"].nil?
+        ENV["OBS_USE_GIT_TARBALLS"] = "1"
         if ENV["GIT_MASTER"].nil?
             ENV["GIT_MASTER"] = "git://github.com/openstack/nova.git"
         end
@@ -380,6 +390,7 @@ wget #{repo_file_url}
 
     task :build_python_novaclient do
         ENV["OBS_PACKAGE"] = "python-novaclient" if ENV["OBS_PACKAGE"].nil?
+        ENV["OBS_USE_GIT_TARBALLS"] = "1"
         if ENV["GIT_MASTER"].nil?
             ENV["GIT_MASTER"] = "git://github.com/openstack/python-novaclient.git"
         end
@@ -389,6 +400,7 @@ wget #{repo_file_url}
 
     task :build_glance do
         ENV["OBS_PACKAGE"] = "openstack-glance" if ENV["OBS_PACKAGE"].nil?
+        ENV["OBS_USE_GIT_TARBALLS"] = "1"
         if ENV["GIT_MASTER"].nil?
             ENV["GIT_MASTER"] = "git://github.com/openstack/glance.git"
         end
@@ -398,6 +410,7 @@ wget #{repo_file_url}
 
     task :build_python_glanceclient do
         ENV["OBS_PACKAGE"] = "python-glanceclient" if ENV["OBS_PACKAGE"].nil?
+        ENV["OBS_USE_GIT_TARBALLS"] = "1"
         if ENV["GIT_MASTER"].nil?
             ENV["GIT_MASTER"] = "git://github.com/openstack/python-glanceclient.git"
         end
@@ -408,6 +421,7 @@ wget #{repo_file_url}
 
     task :build_keystone do
         ENV["OBS_PACKAGE"] = "openstack-keystone" if ENV["OBS_PACKAGE"].nil?
+        ENV["OBS_USE_GIT_TARBALLS"] = "1"
         if ENV["GIT_MASTER"].nil?
             ENV["GIT_MASTER"] = "git://github.com/openstack/keystone.git"
         end
@@ -417,6 +431,7 @@ wget #{repo_file_url}
 
     task :build_python_keystoneclient do
         ENV["OBS_PACKAGE"] = "python-keystoneclient" if ENV["OBS_PACKAGE"].nil?
+        ENV["OBS_USE_GIT_TARBALLS"] = "0"
         if ENV["GIT_MASTER"].nil?
             ENV["GIT_MASTER"] = "git://github.com/openstack/python-keystoneclient.git"
         end
@@ -426,6 +441,7 @@ wget #{repo_file_url}
 
     task :build_swift do
         ENV["OBS_PACKAGE"] = "openstack-swift" if ENV["OBS_PACKAGE"].nil?
+        ENV["OBS_USE_GIT_TARBALLS"] = "1"
         if ENV["GIT_MASTER"].nil?
             ENV["GIT_MASTER"] = "git://github.com/openstack/swift.git"
         end
@@ -435,6 +451,7 @@ wget #{repo_file_url}
 
     task :build_python_swiftclient do
         ENV["OBS_PACKAGE"] = "python-swiftclient" if ENV["OBS_PACKAGE"].nil?
+        ENV["OBS_USE_GIT_TARBALLS"] = "1"
         if ENV["GIT_MASTER"].nil?
             ENV["GIT_MASTER"] = "git://github.com/openstack/python-swiftclient.git"
         end
@@ -445,6 +462,7 @@ wget #{repo_file_url}
 
     task :build_cinder do
         ENV["OBS_PACKAGE"] = "openstack-cinder" if ENV["OBS_PACKAGE"].nil?
+        ENV["OBS_USE_GIT_TARBALLS"] = "1"
         if ENV["GIT_MASTER"].nil?
             ENV["GIT_MASTER"] = "git://github.com/openstack/cinder.git"
         end
@@ -455,6 +473,7 @@ wget #{repo_file_url}
 
     task :build_python_cinderclient do
         ENV["OBS_PACKAGE"] = "python-cinderclient" if ENV["OBS_PACKAGE"].nil?
+        ENV["OBS_USE_GIT_TARBALLS"] = "1"
         if ENV["GIT_MASTER"].nil?
             ENV["GIT_MASTER"] = "git://github.com/openstack/python-cinderclient.git"
         end
@@ -465,6 +484,7 @@ wget #{repo_file_url}
 
     task :build_quantum do
         ENV["OBS_PACKAGE"] = "openstack-quantum" if ENV["OBS_PACKAGE"].nil?
+        ENV["OBS_USE_GIT_TARBALLS"] = "1"
         if ENV["GIT_MASTER"].nil?
             ENV["GIT_MASTER"] = "git://github.com/openstack/quantum.git"
         end
@@ -474,6 +494,7 @@ wget #{repo_file_url}
 
     task :build_python_quantumclient do
         ENV["OBS_PACKAGE"] = "python-quantumclient" if ENV["OBS_PACKAGE"].nil?
+        ENV["OBS_USE_GIT_TARBALLS"] = "0"
         if ENV["GIT_MASTER"].nil?
             ENV["GIT_MASTER"] = "git://github.com/openstack/python-quantumclient.git"
         end
@@ -486,6 +507,7 @@ wget #{repo_file_url}
     task :build_python_warlock do
         ENV["OBS_PROJECT"] = "devel:languages:python" if ENV["OBS_PROJECT"].nil?
         ENV["OBS_PACKAGE"] = "python-warlock" if ENV["OBS_PACKAGE"].nil?
+        ENV["OBS_USE_GIT_TARBALLS"] = "0"
         if ENV["GIT_MASTER"].nil?
             ENV["GIT_MASTER"] = "git://github.com/bcwaldon/warlock.git"
         end
@@ -500,6 +522,7 @@ wget #{repo_file_url}
     task :build_python_prettytable do
         ENV["OBS_PROJECT"] = "devel:languages:python" if ENV["OBS_PROJECT"].nil?
         ENV["OBS_PACKAGE"] = "python-prettytable" if ENV["OBS_PACKAGE"].nil?
+        ENV["OBS_USE_GIT_TARBALLS"] = "0"
         if ENV["GIT_MASTER"].nil?
             ENV["GIT_MASTER"] = "git://github.com/dprince/python-prettytable.git"
         end
@@ -515,6 +538,7 @@ wget #{repo_file_url}
     task :build_python_stevedore do
         ENV["OBS_PROJECT"] = "devel:languages:python" if ENV["OBS_PROJECT"].nil?
         ENV["OBS_PACKAGE"] = "python-stevedore" if ENV["OBS_PACKAGE"].nil?
+        ENV["OBS_USE_GIT_TARBALLS"] = "0"
         if ENV["GIT_MASTER"].nil?
             ENV["GIT_MASTER"] = "git://github.com/dreamhost/stevedore.git"
         end
