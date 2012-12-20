@@ -352,7 +352,7 @@ EOF_SERVER_NAME
         sg=ServerGroup.get()
         puts "Creating RPM repo config files..."
         results = remote_multi_exec sg.server_names, %{
-echo -e "[openstack]\\nname=OpenStack RPM repo\\nbaseurl=http://#{server_name}/repos\\nenabled=1\\nautorefresh=1\\ngpgcheck=0\\npriority=1" > /etc/zypp/repos.d/openstack.repo
+echo -e "[firestack]\\nname=OpenStack (Firestack)\\nbaseurl=http://#{server_name}/repos\\nenabled=1\\nautorefresh=1\\ngpgcheck=0\\npriority=1" > /etc/zypp/repos.d/firestack.repo
         }
 
         err_msg = ""
