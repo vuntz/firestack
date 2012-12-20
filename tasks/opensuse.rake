@@ -335,7 +335,7 @@ install_package createrepo
 
 mkdir -p /srv/www/htdocs/repos/
 rm -rf /srv/www/htdocs/repos/*
-find ~/rpms -name "*rpm" -exec cp {} /srv/www/htdocs/repos/ \\;
+find ~/rpms -name "*rpm" -exec cp -a {} /srv/www/htdocs/repos/ \\;
 
 createrepo /srv/www/htdocs/repos
 
