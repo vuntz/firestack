@@ -333,11 +333,14 @@ ssh #{server_name} bash <<-"EOF_SERVER_NAME"
 install_package apache2
 install_package createrepo
 
-mkdir -p /var/www/html/repos/
-rm -rf /var/www/html/repos/*
-find ~/rpms -name "*rpm" -exec cp {} /var/www/html/repos/ \\;
+mkdir -p /srv/www/htdocs/repos/
+rm -rf /srv/www/htdocs/repos/*
+find ~/rpms -name "*rpm" -exec cp {} /srv/www/htdocs/repos/ \\;
 
-createrepo /var/www/html/repos
+createrepo /srv/www/htdocs/repos
+
+# Allow indexing in what we publish with www
+sed -i -e "s/Options None/Options +Indexes/g" /etc/apache2/default-server.conf
 
 /sbin/service apache2 restart
 
