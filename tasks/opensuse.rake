@@ -40,6 +40,7 @@ namespace :opensuse do
 ssh #{server_name} bash <<-"EOF_SERVER_NAME"
 #{BASH_COMMON}
 
+FIRESTACK_EMAIL=devnull@devstack.org
 BUILD_LOG=$(mktemp)
 mkdir -p sources
 mkdir -p sources-rpms
@@ -157,7 +158,7 @@ if [ ! -f ~/.gitconfig ]; then
 cat > ~/.gitconfig <<-EOF_GIT_CONFIG_CAT
 [user]
         name = OpenStack
-        email = devnull@openstack.org
+        email = ${FIRESTACK_EMAIL}
 EOF_GIT_CONFIG_CAT
 fi
 
@@ -203,7 +204,7 @@ git_clone_with_retry "https://github.com/openSUSE/obs-service-git_tarballs.git" 
 osc_clone_with_retry "#{obs_apiurl}" "#{obs_project}" "#{obs_package}" "${PKG_DIR}" || { echo "Unable to checkout #{obs_project}/#{obs_package}"; exit 1; }
 cd "${PKG_DIR}"
 
-~/obs-service-git_tarballs/git_tarballs --url "$TARBALL" --package "#{obs_package}" --email devnull@openstack.org
+~/obs-service-git_tarballs/git_tarballs --url "$TARBALL" --package "#{obs_package}" --email ${FIRESTACK_EMAIL}
 
 OSC_REVISION=$(head -n 1 .osc/_files | sed 's/.*srcmd5="//g;s/".*//g')
 OSC_MTIME=$(grep 'mtime="' .osc/_files | sed 's/.*mtime="//g;s/".*//g' | sort | tail -n 1)
@@ -225,7 +226,7 @@ sed -i "$SPEC_FILE_NAME" -e 's|^%patch.*||g'
 
 cat > "$CHANGES_FILE_NAME".tmp <<-EOF_CHANGES_CAT
 --------------------------------------------------------------------
-`TZ=UTC LC_ALL=C date` - devnull@openstack.org
+`TZ=UTC LC_ALL=C date` - ${FIRESTACK_EMAIL}
 
 - Firestack automatic packaging of $VERSION (${GIT_REVISION:0:7}).
 
