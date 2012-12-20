@@ -227,7 +227,10 @@ else
 
     sed -i -e "s/Source0\\?:.*/Source0:        ${SOURCE}/g" "$SPEC_FILE_NAME"
     sed -i -e "s/^Version:.*/Version:        ${VERSION}+git.${GIT_DATE}.${GIT_REVISION:0:7}/g" "$SPEC_FILE_NAME"
+    # Fixup different %setup as much as we can
     sed -i -e "s/^\\(%setup.*\\)%{version}\\(.*\\)$/\\1${VERSION}\\2/g" "$SPEC_FILE_NAME"
+    sed -i -e "s/^%setup -q$/%setup -q -n %{name}-${VERSION}/g" "$SPEC_FILE_NAME"
+    sed -i -e "s/^%setup$/%setup -q -n %{name}-${VERSION}/g" "$SPEC_FILE_NAME"
 fi
 
 PACKAGE_REVISION="${OSC_MTIME}.${OSC_REVISION:0:7}"
