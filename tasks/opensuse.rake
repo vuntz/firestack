@@ -219,6 +219,9 @@ if [ "x#{obs_use_git_tarballs}" == "x1" ]; then
 else
     cp "$TARBALL" .
     SOURCE=$(basename "$TARBALL")
+    # Make osc happy about new tarball
+    osc addremove &> /dev/null
+
     sed -i -e "s/Source0\\?:.*/Source0:        ${SOURCE}/g" "$SPEC_FILE_NAME"
     sed -i -e "s/^Version:.*/Version:        ${VERSION}+git.${GIT_DATE}.${GIT_REVISION:0:7}/g" "$SPEC_FILE_NAME"
     sed -i -e "s/^\\(%setup.*\\)%{version}\\(.*\\)$/\\1${VERSION}\\2/g" "$SPEC_FILE_NAME"
