@@ -174,6 +174,7 @@ else
 	[ -z "$GIT_REVISION" ] && \
 		fail "Failed to obtain #{project} revision from git."
 fi
+GIT_DATE=$(git log -n1 --pretty=format:"%ct")
 
 echo "#{project.upcase}_REVISION=$GIT_REVISION"
 
@@ -210,8 +211,11 @@ SPEC_FILE_NAME="#{obs_package}.spec"
 CHANGES_FILE_NAME="#{obs_package}.changes"
 RPM_BASE_NAME=${SPEC_FILE_NAME:0:-5}
 
+# git_tarballs uses now() as timestamp in version, let's use the last git commit date
+sed -i -e "s/^\\(Version:.*\\+git\\.\\)[0-9]*\\(\\..*\\)$/\\1${GIT_DATE}\\2/g" "$SPEC_FILE_NAME"
+
 PACKAGE_REVISION="${OSC_MTIME}.${OSC_REVISION:0:7}"
-sed -i -e "s/Release:.*/Release: 0.$PACKAGE_REVISION/g" "$SPEC_FILE_NAME"
+sed -i -e "s/^Release:.*/Release: 0.$PACKAGE_REVISION/g" "$SPEC_FILE_NAME"
 
 # TODO-vuntz: this is not how we build docs on openSUSE
 [ -z "#{build_docs}" ] && sed -i -e 's/%global with_doc .*/%global with_doc 0/g' "$SPEC_FILE_NAME"
