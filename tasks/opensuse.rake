@@ -69,7 +69,7 @@ function osc_clone_with_retry {
         local ECHO_URL="$APIURL/source/$PRJ/$PKG"
         echo "Checking out from: $ECHO_URL"
         pushd "$APIURL_CACHE_DIR" > /dev/null
-        until osc checkout "$PRJ" "$PKG"; do
+        until osc checkout "$PRJ" "$PKG" &> /dev/null; do
             [ "$COUNT" -eq "4" ] && fail "Failed to checkout: $ECHO_URL"
             sleep $(( $COUNT * 5 ))
             COUNT=$(( $COUNT + 1 ))
@@ -165,7 +165,7 @@ fi
 
 git_clone_with_retry "#{git_master}" "$SRC_DIR"
 cd "$SRC_DIR"
-git fetch "#{src_url}" "#{src_branch}" || fail "Failed to git fetch branch #{src_branch}."
+git fetch "#{src_url}" "#{src_branch}" &> /dev/null || fail "Failed to git fetch branch #{src_branch}."
 git checkout -q FETCH_HEAD || fail "Failed to git checkout FETCH_HEAD."
 GIT_REVISION=#{git_revision}
 if [ -n "$GIT_REVISION" ]; then
