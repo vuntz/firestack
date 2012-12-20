@@ -45,8 +45,8 @@ FIRESTACK_EMAIL=devnull@devstack.org
 BUILD_LOG=$(mktemp)
 mkdir -p sources
 mkdir -p sources-rpms
-SRC_DIR="sources/#{project}"
-PKG_DIR="sources-rpms/#{project}"
+SRC_DIR="${HOME}/sources/#{project}"
+PKG_DIR="${HOME}/sources-rpms/#{project}"
 OSC_CACHE_DIR=/root/.osc_repo_cache
 
 function osc_clone_with_retry {
@@ -146,8 +146,14 @@ if [ -n "$CACHEURL" ] ; then
     test $? -eq 0 && { echo "Retrieved rpms from cache" ; exit 0 ; }
 fi
 
+
+### Fetch upstream & rpm sources
+
 test -e $SRC_DIR && rm -rf $SRC_DIR
 test -e $PKG_DIR && rm -rf $PKG_DIR
+
+git_clone_with_retry "#{git_master}" "$SRC_DIR"
+osc_clone_with_retry "#{obs_apiurl}" "#{obs_project}" "#{obs_package}" "${PKG_DIR}" || { echo "Unable to checkout #{obs_project}/#{obs_package}"; exit 1; }
 
 
 ### Create tarball from git
@@ -163,8 +169,8 @@ cat > ~/.gitconfig <<-EOF_GIT_CONFIG_CAT
 EOF_GIT_CONFIG_CAT
 fi
 
-git_clone_with_retry "#{git_master}" "$SRC_DIR"
-cd "$SRC_DIR"
+cd "${SRC_DIR}"
+
 git fetch "#{src_url}" "#{src_branch}" &> /dev/null || fail "Failed to git fetch branch #{src_branch}."
 git checkout -q FETCH_HEAD || fail "Failed to git checkout FETCH_HEAD."
 GIT_REVISION=#{git_revision}
@@ -190,15 +196,12 @@ SKIP_GENERATE_AUTHORS=1 python setup.py sdist &> $BUILD_LOG || { echo "Failed to
 
 # determine version from tarball name
 VERSION=$(ls dist/* | sed -e "s|.*$PROJECT_NAME-\\(.*\\)\\.tar.gz|\\1|")
-TARBALL="$HOME/$SRC_DIR/$(ls dist/*.tar.gz)"
+TARBALL="$SRC_DIR/$(ls dist/*.tar.gz)"
 echo "Tarball version: $VERSION"
 
 
 ### Prepare packaging bits
 
-cd
-
-osc_clone_with_retry "#{obs_apiurl}" "#{obs_project}" "#{obs_package}" "${PKG_DIR}" || { echo "Unable to checkout #{obs_project}/#{obs_package}"; exit 1; }
 cd "${PKG_DIR}"
 
 OSC_REVISION=$(head -n 1 .osc/_files | sed 's/.*srcmd5="//g;s/".*//g')
