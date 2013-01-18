@@ -213,7 +213,9 @@ RPM_BASE_NAME=${SPEC_FILE_NAME:0:-5}
 if [ "x#{obs_use_git_tarballs}" == "x1" ]; then
     # FIXME: Temporary until obs-service-git_tarballs package is available on all supported distros
     rm -rf obs-service-git_tarballs
+    pushd "${HOME}" > /dev/null
     git_clone_with_retry "https://github.com/openSUSE/obs-service-git_tarballs.git" "obs-service-git_tarballs"
+    popd
 
     ~/obs-service-git_tarballs/git_tarballs --url "$TARBALL" --package "#{obs_package}" --email ${FIRESTACK_EMAIL}
 
