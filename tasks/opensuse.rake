@@ -137,7 +137,7 @@ apiurl = #{obs_apiurl}
 [#{obs_apiurl}]
 user = #{obs_username}
 pass = #{obs_password}
-trusted_prj = openSUSE:Factory openSUSE:12.2
+trusted_prj = openSUSE:Factory openSUSE:12.2 Cloud:OpenStack:Essex Cloud:OpenStack:Folsom
 EOF_OSCRC_CAT
 
 CACHEURL="#{cacheurl}"
