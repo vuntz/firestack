@@ -445,7 +445,7 @@ wget #{repo_file_url}
 
     task :build_python_keystoneclient do
         ENV["OBS_PACKAGE"] = "python-keystoneclient" if ENV["OBS_PACKAGE"].nil?
-        ENV["OBS_USE_GIT_TARBALLS"] = "0"
+        ENV["OBS_USE_GIT_TARBALLS"] = "1"
         if ENV["GIT_MASTER"].nil?
             ENV["GIT_MASTER"] = "git://github.com/openstack/python-keystoneclient.git"
         end
@@ -508,7 +508,7 @@ wget #{repo_file_url}
 
     task :build_python_quantumclient do
         ENV["OBS_PACKAGE"] = "python-quantumclient" if ENV["OBS_PACKAGE"].nil?
-        ENV["OBS_USE_GIT_TARBALLS"] = "0"
+        ENV["OBS_USE_GIT_TARBALLS"] = "1"
         if ENV["GIT_MASTER"].nil?
             ENV["GIT_MASTER"] = "git://github.com/openstack/python-quantumclient.git"
         end
